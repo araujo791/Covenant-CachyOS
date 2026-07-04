@@ -1,117 +1,48 @@
 # Covenant-CachyOS
 
-Kernel customizado e otimizado para desktop gaming/performance em hardware de servidor dual-socket, baseado no CachyOS.
+Kernel e otimizações de sistema para **desktop gaming/performance rodando em hardware de servidor dual-socket**, baseado no CachyOS.
+
+O foco é reduzir tráfego cross-socket (NUMA), fixar recursos em performance e derivar um kernel do `linux-cachyos` compilado para esta máquina — sem editar `.config` à mão, usando as variáveis do PKGBUILD oficial.
 
 ## Hardware alvo
 
 | Componente | Especificação |
 |---|---|
-| CPU | 2x Intel Xeon E5-2680 v4 (28c/56t total) |
+| CPU | 2x Intel Xeon E5-2680 v4 — Broadwell-EP (28c/56t total) |
 | Placa-mãe | MACHINIST E5-D8-MAX |
-| RAM | 64GB DDR4 (2x 32GB, dual channel por socket) |
-| GPU | AMD Radeon RX 560 Series |
+| RAM | 64GB DDR4 (2x 32GB) |
+| GPU | AMD Radeon RX 560 (Polaris) |
 | Storage | NVMe 953GB + NVMe 465GB + 4x HDD (12TB total) |
-| NUMA | 2 nodes — node 0: CPUs 0-13,28-41 / node 1: CPUs 14-27,42-55 |
+| NUMA | node 0: CPUs 0-13,28-41 · node 1: CPUs 14-27,42-55 |
 | OS | CachyOS (Arch-based) |
-| Kernel base | linux-cachyos 7.0.3 (BORE+EEVDF) |
+| Kernel base | linux-cachyos 7.1.x (BORE + EEVDF + sched_ext) |
 
----
-
-## Otimizações aplicadas
-
-### Kernel
-- Compilado do zero com **Clang + ThinLTO** (~20% mais rápido que GCC em algumas cargas)
-- `CONFIG_MBROADWELL` — instruções específicas para Broadwell-EP, sem código genérico
-- **BORE + EEVDF scheduler** — melhor responsividade em desktop com muitos cores
-- `HZ=1000` — timer de alta resolução para menor latência
-- `PREEMPT=FULL` — preempção total, kernel mais responsivo
-- **Debug desativado** — sem KFENCE, FTRACE, SLUB_DEBUG, KPROBES (reduz overhead)
-- Watchdog desativado no kernel (`LOCKUP_DETECTOR`, `HARDLOCKUP_DETECTOR`)
-- `CONFIG_RD_ZSTD` + `CONFIG_KERNEL_ZSTD` — compressão zstd (mais rápido que gzip)
-- `CONFIG_LTO_CLANG_THIN` — link-time optimization
-- `CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE` — otimiza para velocidade, não tamanho
-- `CONFIG_IRQ_FORCED_THREADING` — IRQ em threads dedicadas
-- `CONFIG_RCU_NOCB_CPU` + `CONFIG_RCU_BOOST` — RCU otimizado para throughput
-- `CONFIG_TCP_CONG_BBR` + `CONFIG_NET_SCH_FQ` — controle de rede BBR
-- `CONFIG_FUTEX` + `CONFIG_FUTEX_PI` — suporte otimizado para Steam/Proton/Wine
-- `CONFIG_ZSWAP` + `CONFIG_ZSMALLOC` — compressão de memória
-- `CONFIG_DRM_AMDGPU` — suporte nativo RX 560
-- `CONFIG_BLK_DEV_NVME` + `CONFIG_NVME_MULTIPATH` — NVMe otimizado
-
-### NUMA (dual socket)
-- `numa_balancing=1` — balanceamento automático entre os dois sockets
-- `nohz_full=1-13,28-41` — cores do node 0 livres de interrupções de timer
-- `rcu_nocbs=1-13,28-41` — RCU offloaded nos cores do node 0
-- `irqaffinity=0,14` — um core por socket dedicado a IRQs
-- **Steam launch options** com `numactl --cpunodebind=0 --membind=0` — força CPU, RAM e I/O no mesmo nó NUMA onde estão os NVMes
-
-### SCX Scheduler
-- `scx_rusty` via `scx_loader` — scheduler userspace **NUMA-aware**, distribui carga entre os dois sockets de forma inteligente
-
-### CPU
-- Governor **performance** em todos os 56 cores
-- IRQ balance desativado (`irqbalance` desabilitado)
-- Persistido via `tmpfiles.d` no boot
-
-### Memória
-- **Zram** — 32GB de swap comprimido em RAM com zstd (muito mais rápido que swap em disco)
-- `vm.nr_hugepages = 1024` — hugepages para reduzir TLB miss
-- `vm.swappiness = 10` — usa swap apenas quando necessário
-- `vm.compaction_proactiveness = 20` — hugepages mais eficientes
-- `CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS` — hugepages transparentes sempre ativas
-
-### GPU (AMD RX 560)
-- `power_dpm_force_performance_level = high` — GPU fixada em performance máxima
-- Persistido via udev rule no boot
-
-### I/O Scheduler
-- **NVMe** → `none` (gerenciamento interno da fila pelo próprio NVMe)
-- **HDDs** → `bfq` (Budget Fair Queueing — melhor para discos rotativos)
-- Persistido via udev rules
-
-### Rede
-- `net.ipv4.tcp_congestion_control = bbr` — BBR para melhor throughput
-- `net.core.default_qdisc = fq` — Fair Queuing
-- `net.ipv4.tcp_fastopen = 3` — conexões TCP mais rápidas
-- `net.ipv4.tcp_mtu_probing = 1` — MTU dinâmico
-
-### Processos
-- **Ananicy-cpp** — prioridade automática de processos (jogos ganham CPU automaticamente)
-- `kernel.sched_autogroup_enabled = 1` — agrupamento automático de tarefas
-
-### Sistema
-- Serviços desnecessários desativados: `bluetooth`, `avahi-daemon`, `ModemManager`
-- `mitigations=off` — desativa proteções Spectre/Meltdown *(máquina pessoal/local)*
-- `nowatchdog` — watchdog desativado via cmdline
-
-### Boot
-- Nome **Covenant-CachyOS** no GRUB
-- Hook pacman para manter o nome após atualizações do kernel
+> **Nota de memória:** com 2 DIMMs em 2 sockets, cada CPU roda **1 canal** de um controlador **quad-channel**. Popular 4 (ou 8) DIMMs por socket é, de longe, o maior ganho de banda de memória disponível nesta máquina — mais do que qualquer ajuste de kernel.
 
 ---
 
 ## Scripts
 
-| Script | Descrição |
+| Script | O que faz |
 |---|---|
-| `covenant-cachyos.sh` | Instalação completa de todas as otimizações |
-| `covenant-build.sh` | Compila o kernel do zero com Clang+ThinLTO |
-| `covenant-backup.sh` | Backup completo pós-reboot (vmlinuz, initramfs, pkgs, configs) |
+| `covenant-setup.sh` | Aplica as otimizações de sistema (GRUB, sysctl, governor, zram, I/O, GPU, serviços). |
+| `covenant-build.sh` | Compila o kernel custom `linux-covenant` (Clang+ThinLTO) via env vars do PKGBUILD. |
+| `covenant-backup.sh` | Detecta o kernel em uso e salva vmlinuz/initramfs/pacotes/configs + snapshot. |
 
 ### Uso
 
 ```bash
-# 1. Instala todas as otimizações
-sudo bash covenant-cachyos.sh
+# 1. Otimizacoes de sistema (base — boota mesmo sem o kernel custom)
+sudo bash covenant-setup.sh
 
-# 2. Compila kernel customizado (opcional, ~10min com 56 threads)
+# 2. (Opcional) Kernel custom para esta maquina — ~10min em rebuild
 bash covenant-build.sh
 
-# 3. Após reiniciar, faz backup completo
+# 3. Apos reiniciar no kernel novo, faca o backup
 sudo bash covenant-backup.sh
 ```
 
-### Reinstalar kernel sem recompilar
+Reinstalar o kernel custom sem recompilar:
 
 ```bash
 sudo pacman -U ~/Kernal/backup/compiled/linux-covenant-*.pkg.tar.zst
@@ -123,24 +54,83 @@ sudo pacman -U ~/Kernal/backup/compiled/linux-covenant-*.pkg.tar.zst
 numactl --cpunodebind=0 --membind=0 gamemoderun %command%
 ```
 
----
-
-## Resultado
-
-| Métrica | Antes | Depois |
-|---|---|---|
-| Kernel | linux-cachyos 7.0.2 (pré-compilado) | linux-covenant 7.0.3 (Clang+ThinLTO) |
-| Scheduler | EEVDF | BORE+EEVDF + scx_rusty |
-| Swap | disco | Zram 32GB zstd (RAM) |
-| GPU | auto | performance fixo |
-| I/O NVMe | mq-deadline | none |
-| I/O HDD | mq-deadline | bfq |
-| Tempo de build | — | ~10min (56 threads) |
+Fixa CPU e RAM no node 0, onde estao os dois NVMe — minimiza acesso cross-socket.
 
 ---
 
-## Observações
+## Otimizacoes
 
-- `mitigations=off` é recomendado apenas para máquinas pessoais/locais
-- O node NUMA 0 concentra CPU, RAM e storage (NVMe) — mínimo de tráfego cross-socket
-- Testado no CachyOS com GNOME 50 + Wayland
+### Kernel custom (`covenant-build.sh`)
+
+Nada e editado no `.config` manualmente. Tudo vem das variaveis que o PKGBUILD do CachyOS ja expoe, o que mantem a arvore consistente com o upstream e preserva os `select`/dependencias do Kconfig:
+
+- **`-march=native`** — o build roda na propria Covenant, entao `native` resolve para Broadwell-EP com o tuning exato da CPU (melhor que `MBROADWELL` fixo).
+- **Clang + ThinLTO** (`_use_llvm_lto=thin`) — ganho tipicamente de poucos pontos percentuais em cargas reais.
+- **BORE + EEVDF + sched_ext** (`_cpusched=cachyos`) — mantem `SCHED_CLASS_EXT` **e o BTF** ligados. Isso e o que permite o `scx_rusty` anexar; desabilitar `DEBUG_INFO_BTF` derruba o sched_ext silenciosamente.
+- **`HZ=1000`, `PREEMPT=full`, `nohz_full`** (`_tickrate=full`) — baixa latencia.
+- **THP `always`** (`_hugepage=always`).
+- **Governor default = performance** (`_per_gov=yes`).
+- **BBRv3** (`_tcp_bbr3=yes`) — fornece o modulo `bbr` usado no sysctl.
+- **`_build_debug=no`** — sem info de debug pesada (o CACHY config ja desliga KFENCE/etc., mas preserva o BTF necessario ao scx).
+- **`_localmodcfg`** (opt-in) — compila so os modulos que a maquina carrega. Rode `LOCALMODCFG=yes bash covenant-build.sh` depois de popular o `modprobed-db`.
+
+> **BORE x scx_rusty:** quando o `scx_rusty` esta ativo, ele **assume** o escalonamento das tarefas normais; o BORE+EEVDF e o *fallback* quando o sched_ext esta desligado. Os dois nao atuam ao mesmo tempo.
+
+### NUMA (dual socket) — via cmdline
+
+- `numa_balancing=1` — balanceamento automatico entre os sockets.
+- `nohz_full=1-13,28-41` + `rcu_nocbs=1-13,28-41` — cores do node 0 livres de tick/RCU callbacks.
+- `irqaffinity=0,14` — um core por socket dedicado a IRQs.
+- `scx_rusty` via `scx_loader` — escalonador userspace NUMA-aware.
+
+> `nohz_full` rende mais em cargas *isoladas* (uma thread por core). Para jogos, vale **medir frametimes com e sem** — em cargas muito interativas o overhead de entrar/sair do modo tickless pode anular o beneficio.
+
+### Memoria
+
+- **Zram** — swap comprimido em RAM (zstd, ~metade da RAM).
+- `vm.swappiness = 100` + `vm.page-cluster = 0` — **correto para zram**: comprimir paginas frias e mais barato que descartar page cache; swappiness baixa so faz sentido para swap em disco.
+- THP `always` cobre hugepages para jogos/Proton — sem reservar `nr_hugepages` explicitas (que sequestrariam RAM sem uso).
+
+### CPU / Energia
+
+- Governor **performance** (kernel default + `tmpfiles.d` + runtime). Sem `power-profiles-daemon` (redundante em desktop e conflita com governor fixo).
+- `irqbalance` desativado.
+
+### GPU (RX 560)
+
+- `power_dpm_force_performance_level = high`, persistido via udev **escopado ao driver `amdgpu`** (nao casa a funcao de audio HDMI).
+
+### I/O Scheduler
+
+- NVMe -> `none` · HDD rotativo -> `bfq` · SSD SATA -> `none`. Persistido via udev.
+
+### Rede
+
+- `tcp_congestion_control = bbr` (BBRv3) · `default_qdisc = fq` · `tcp_fastopen = 3` · `tcp_mtu_probing = 1`.
+
+### Sistema / Boot
+
+- Servicos desnecessarios desativados: `bluetooth`, `avahi-daemon`, `ModemManager`.
+- `mitigations=off` + `nowatchdog` *(maquina pessoal/local)*.
+- Nome nos menus do GRUB via **`GRUB_DISTRIBUTOR="Covenant-CachyOS"`** — sobrevive a `grub-mkconfig` e a updates de kernel, dispensando `sed` em `grub.cfg` e hook do pacman.
+
+---
+
+## Verificacao rapida (pos-reboot)
+
+```bash
+uname -r                              # -> <versao>-covenant
+cat /sys/kernel/sched_ext/state       # -> enabled (scx_rusty ativo)
+systemctl is-active scx_loader
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor   # -> performance
+zramctl
+sysctl net.ipv4.tcp_congestion_control                      # -> bbr
+```
+
+---
+
+## Observacoes
+
+- `mitigations=off` e aceitavel **apenas** em maquina pessoal/local.
+- O node NUMA 0 concentra CPU, RAM e os NVMe — minimo de trafego cross-socket.
+- Rollback do GRUB: o setup preserva `/etc/default/grub.covenant-orig` na primeira execucao.

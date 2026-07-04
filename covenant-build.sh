@@ -1,24 +1,23 @@
 #!/bin/bash
 # ============================================================
 #   Covenant-CachyOS — Kernel Build Script
-#   Compila o kernel do zero otimizado para:
-#   - 2x Intel Xeon E5-2680 v4 (Broadwell-EP)
-#   - Dual socket NUMA (node 0: CPUs 0-13,28-41)
-#   - Gaming / low latency desktop
+#   Compila um kernel derivado do linux-cachyos, otimizado para
+#   ESTA máquina (compile na própria Covenant: -march=native = Broadwell-EP).
 #
-#   Uso: bash covenant-build.sh
-#   Tempo estimado: 1-3h (primeira vez) / ~10min (rebuild)
-#   Resultado: uname -r → 7.x.x-covenant-cachyos
+#   Todas as opções são passadas via variáveis de ambiente que o
+#   PKGBUILD oficial já expõe — sem editar o .config à mão. Isso mantém
+#   BTF/sched_ext ligados (necessário para o scx_rusty) e sobrevive a
+#   mudanças upstream no PKGBUILD.
+#
+#   Uso:   bash covenant-build.sh
+#   Tempo: 1-3h (primeira vez) / ~10min (rebuild incremental)
+#   uname -r resultante: <versão>-covenant   (ex.: 7.1.2-covenant)
 # ============================================================
 
-set -e
+set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 log()  { echo -e "${GREEN}[✓]${NC} $1"; }
 info() { echo -e "${CYAN}[→]${NC} $1"; }
@@ -36,278 +35,136 @@ echo -e "         Covenant-CachyOS Kernel Builder${NC}"
 echo ""
 
 # ─────────────────────────────────────────
-# Configurações
-# pkgbase=linux-covenant → pacote se chama linux-covenant
-# _localversion="-cachyos" → uname -r: 7.x.x-covenant-cachyos
+# Configuração
 # ─────────────────────────────────────────
-KERNEL_NAME="covenant"
-LOCALVERSION="-cachyos"
+KSUFFIX="covenant"                    # → pkgbase=linux-covenant, uname=<ver>-covenant
 BUILD_DIR="$HOME/kernel-build"
 PKGBUILD_DIR="$BUILD_DIR/linux-cachyos/linux-cachyos"
-JOBS=$(nproc)
 BACKUP_DIR="$HOME/Kernal/backup/compiled"
+JOBS=$(nproc)
 
-info "Usando $JOBS threads para compilação."
-info "Resultado final: uname -r → $(uname -r | sed 's/[0-9].*//')x.x-covenant-cachyos"
+# Opções do kernel (env vars oficiais do PKGBUILD do CachyOS).
+# _localmodcfg=yes compila só os módulos que ESTA máquina carrega — corta
+# muito o tempo de build. Requer 'modprobed-db' populado ao longo do tempo:
+#   pacman -S modprobed-db && modprobed-db store   (repita por alguns dias)
+LOCALMODCFG="${LOCALMODCFG:-no}"
+
+export _cpusched="cachyos"            # BORE + EEVDF + sched_ext (mantém BTF p/ scx_rusty)
+export _processor_opt=""              # vazio → X86_NATIVE_CPU (=march=native = Broadwell-EP aqui)
+export _use_llvm_lto="thin"           # Clang + ThinLTO
+export _HZ_ticks="1000"
+export _tickrate="full"               # nohz_full
+export _preempt="full"
+export _hugepage="always"             # THP always
+export _per_gov="yes"                 # governor default = performance
+export _tcp_bbr3="yes"                # BBRv3 (fornece o módulo 'bbr')
+export _build_debug="no"
+export _localmodcfg="$LOCALMODCFG"
+
+info "Threads de compilação: $JOBS"
+info "Sufixo do kernel     : $KSUFFIX (uname -r → <versão>-$KSUFFIX)"
+info "localmodconfig       : $LOCALMODCFG"
 echo ""
 
 # ─────────────────────────────────────────
 # PASSO 1 — Dependências
 # ─────────────────────────────────────────
-info "Passo 1/9 — Instalando dependências de compilação..."
-sudo pacman -S --noconfirm \
+info "Passo 1/8 — Instalando dependências de compilação..."
+sudo pacman -S --needed --noconfirm \
   base-devel bc cpio gettext git \
   libelf pahole perl python \
   tar xz zstd xmlto \
-  numactl cpupower \
   llvm clang lld
 log "Dependências instaladas."
 
 # ─────────────────────────────────────────
-# PASSO 2 — Baixar / atualizar fonte
+# PASSO 2 — Obter/atualizar fonte (idempotente)
 # ─────────────────────────────────────────
-info "Passo 2/9 — Obtendo PKGBUILD do CachyOS..."
+info "Passo 2/8 — Obtendo PKGBUILD do CachyOS..."
 mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-
-if [ ! -d "linux-cachyos" ]; then
-  git clone --depth=1 https://github.com/CachyOS/linux-cachyos.git
+if [ ! -d "$BUILD_DIR/linux-cachyos/.git" ]; then
+  git clone --depth=1 https://github.com/CachyOS/linux-cachyos.git "$BUILD_DIR/linux-cachyos"
   log "Repositório clonado."
 else
-  cd linux-cachyos && git pull && cd ..
+  git -C "$BUILD_DIR/linux-cachyos" checkout -- . 2>/dev/null || true   # descarta seds anteriores
+  git -C "$BUILD_DIR/linux-cachyos" pull --ff-only
   log "Repositório atualizado."
 fi
-
 cd "$PKGBUILD_DIR"
 
 # ─────────────────────────────────────────
-# PASSO 3 — Renomear para Covenant
-# pkgbase=linux-covenant
-# _localversion="-cachyos"
-# → uname -r: 7.x.x-covenant-cachyos ✅
+# PASSO 3 — Forçar o sufixo Covenant
+# _pkgsuffix governa TANTO pkgbase QUANTO uname (_kernuname). Forçá-lo
+# imediatamente antes de 'pkgbase=' cobre os dois de uma vez.
 # ─────────────────────────────────────────
-info "Passo 3/9 — Aplicando nome Covenant ao PKGBUILD..."
-
-sed -i "s/^pkgbase=.*/pkgbase=linux-${KERNEL_NAME}/" PKGBUILD
-
-if grep -q '_localversion' PKGBUILD; then
-  sed -i "s/^_localversion=.*/_localversion=\"${LOCALVERSION}\"/" PKGBUILD
+info "Passo 3/8 — Aplicando sufixo '$KSUFFIX' ao PKGBUILD..."
+if grep -q '^pkgbase="linux-\$_pkgsuffix"' PKGBUILD; then
+  sed -i "s|^pkgbase=\"linux-\$_pkgsuffix\"|_pkgsuffix=$KSUFFIX\npkgbase=\"linux-\$_pkgsuffix\"|" PKGBUILD
+  log "pkgbase → linux-$KSUFFIX | uname → <versão>-$KSUFFIX"
 else
-  sed -i "/^pkgbase=/a _localversion=\"${LOCALVERSION}\"" PKGBUILD
-fi
-
-PKGBASE=$(grep '^pkgbase=' PKGBUILD | cut -d= -f2)
-LVER=$(grep '_localversion=' PKGBUILD | head -1 | cut -d= -f2 | tr -d '"')
-log "pkgbase      : $PKGBASE"
-log "localversion : $LVER"
-log "uname -r será: <versão>-covenant-cachyos ✅"
-
-# ─────────────────────────────────────────
-# PASSO 4 — Script de config otimizada
-# ─────────────────────────────────────────
-info "Passo 4/9 — Gerando config otimizada para Xeon E5-2680 v4..."
-
-cat > "$BUILD_DIR/covenant-config.sh" << 'CFGEOF'
-#!/bin/bash
-# Otimizações aplicadas após make olddefconfig
-
-# Arquitetura Broadwell específica
-scripts/config --enable  CONFIG_MBROADWELL
-scripts/config --disable CONFIG_GENERIC_CPU
-scripts/config --disable CONFIG_MATOM
-
-# Scheduler BORE + EEVDF
-scripts/config --enable  CONFIG_SCHED_BORE
-scripts/config --enable  CONFIG_SCHED_CLASS_EXT
-
-# Preemption FULL
-scripts/config --enable  CONFIG_PREEMPT
-scripts/config --disable CONFIG_PREEMPT_VOLUNTARY
-scripts/config --disable CONFIG_PREEMPT_NONE
-
-# HZ 1000
-scripts/config --set-val CONFIG_HZ 1000
-scripts/config --enable  CONFIG_HZ_1000
-scripts/config --disable CONFIG_HZ_300
-scripts/config --disable CONFIG_HZ_250
-
-# NUMA dual socket
-scripts/config --enable CONFIG_NUMA
-scripts/config --enable CONFIG_NUMA_BALANCING
-scripts/config --enable CONFIG_NUMA_BALANCING_DEFAULT_ENABLED
-
-# Hugepages
-scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE
-scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS
-scripts/config --enable CONFIG_HUGETLBFS
-
-# Compressão zstd
-scripts/config --enable  CONFIG_RD_ZSTD
-scripts/config --disable CONFIG_RD_GZIP
-scripts/config --enable  CONFIG_KERNEL_ZSTD
-
-# LTO Clang Thin
-scripts/config --enable  CONFIG_LTO_CLANG_THIN
-scripts/config --disable CONFIG_LTO_NONE
-scripts/config --disable CONFIG_LTO_CLANG_FULL
-
-# Performance
-scripts/config --enable  CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
-scripts/config --disable CONFIG_CC_OPTIMIZE_FOR_SIZE
-
-# Desativa debug
-scripts/config --disable CONFIG_DEBUG_INFO
-scripts/config --disable CONFIG_DEBUG_INFO_BTF
-scripts/config --disable CONFIG_DEBUG_INFO_DWARF4
-scripts/config --disable CONFIG_DEBUG_INFO_DWARF5
-scripts/config --disable CONFIG_SLUB_DEBUG
-scripts/config --disable CONFIG_DEBUG_MEMORY_INIT
-scripts/config --disable CONFIG_KFENCE
-scripts/config --disable CONFIG_PAGE_POISONING
-scripts/config --disable CONFIG_FTRACE
-scripts/config --disable CONFIG_KPROBES
-
-# IRQ threading
-scripts/config --enable CONFIG_IRQ_FORCED_THREADING
-
-# Watchdog desativado
-scripts/config --disable CONFIG_LOCKUP_DETECTOR
-scripts/config --disable CONFIG_HARDLOCKUP_DETECTOR
-scripts/config --disable CONFIG_SOFTLOCKUP_DETECTOR
-
-# RCU otimizado
-scripts/config --enable CONFIG_RCU_NOCB_CPU
-scripts/config --enable CONFIG_RCU_BOOST
-
-# CPU frequency — performance por padrão
-scripts/config --enable  CONFIG_CPU_FREQ_GOV_PERFORMANCE
-scripts/config --enable  CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
-scripts/config --disable CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
-
-# AMD GPU RX 560
-scripts/config --enable CONFIG_DRM_AMDGPU
-scripts/config --enable CONFIG_DRM_AMDGPU_SI
-scripts/config --enable CONFIG_DRM_AMDGPU_CIK
-
-# NVMe
-scripts/config --enable CONFIG_BLK_DEV_NVME
-scripts/config --enable CONFIG_NVME_MULTIPATH
-
-# Rede BBR + FQ
-scripts/config --enable CONFIG_TCP_CONG_BBR
-scripts/config --enable CONFIG_NET_SCH_FQ
-
-# Steam / Proton / Wine
-scripts/config --enable CONFIG_FUTEX
-scripts/config --enable CONFIG_FUTEX_PI
-
-# Memória
-scripts/config --enable CONFIG_ZSWAP
-scripts/config --enable CONFIG_ZSMALLOC
-scripts/config --enable CONFIG_Z3FOLD
-
-echo "[✓] Configurações Covenant aplicadas."
-CFGEOF
-
-chmod +x "$BUILD_DIR/covenant-config.sh"
-log "Script de config criado."
-
-# ─────────────────────────────────────────
-# PASSO 5 — Injeta config no PKGBUILD
-# ─────────────────────────────────────────
-info "Passo 5/9 — Injetando config no PKGBUILD..."
-
-sed -i '/covenant-config/d' PKGBUILD
-
-if grep -q 'make olddefconfig' PKGBUILD; then
-  sed -i "/make olddefconfig/a\\    $BUILD_DIR/covenant-config.sh" PKGBUILD
-  log "Config injetada após olddefconfig."
-else
-  warn "Não encontrou 'make olddefconfig' — rode $BUILD_DIR/covenant-config.sh manualmente."
+  warn "Layout de pkgbase inesperado no PKGBUILD — seguindo com o padrão do CachyOS."
 fi
 
 # ─────────────────────────────────────────
-# PASSO 6 — Compilar
+# PASSO 4 — Compilar (Clang + ThinLTO)
 # ─────────────────────────────────────────
-info "Passo 6/9 — Compilando com $JOBS threads (Clang + ThinLTO)..."
+info "Passo 4/8 — Compilando com $JOBS threads..."
 warn "Primeira vez: 1-3h | Rebuild: ~10min"
 echo ""
-
-export CC=clang
-export CXX=clang++
-export LD=ld.lld
-export LLVM=1
-export LLVM_IAS=1
-
-makepkg -sf --noconfirm \
-  MAKEFLAGS="-j${JOBS}" \
-  --skippgpcheck
-
-log "Compilação concluída!"
+export LLVM=1 LLVM_IAS=1
+MAKEFLAGS="-j${JOBS}" makepkg -sf --noconfirm --skippgpcheck
+log "Compilação concluída."
 
 # ─────────────────────────────────────────
-# PASSO 7 — Localiza pacotes
+# PASSO 5 — Localizar pacotes gerados
 # ─────────────────────────────────────────
-info "Passo 7/9 — Localizando pacotes compilados..."
-
-PKG=$(ls -1 linux-${KERNEL_NAME}-[0-9]*.pkg.tar.zst 2>/dev/null | grep -v headers | sort -V | tail -1)
-HDR=$(ls -1 linux-${KERNEL_NAME}-headers-[0-9]*.pkg.tar.zst 2>/dev/null | sort -V | tail -1)
-
-# Fallback para linux-cachyos caso pkgbase não tenha sido alterado
-if [ -z "$PKG" ]; then
-  PKG=$(ls -1 linux-cachyos-[0-9]*.pkg.tar.zst 2>/dev/null | grep -v headers | sort -V | tail -1)
-  HDR=$(ls -1 linux-cachyos-headers-[0-9]*.pkg.tar.zst 2>/dev/null | sort -V | tail -1)
-fi
-
-[ -z "$PKG" ] && err "Pacote não encontrado. Verifique erros acima."
-log "Kernel  : $PKG"
-[ -n "$HDR" ] && log "Headers : $HDR"
+info "Passo 5/8 — Localizando pacotes..."
+PKG=$(find . -maxdepth 1 -name "linux-${KSUFFIX}-[0-9]*.pkg.tar.zst" ! -name '*headers*' | sort -V | tail -1)
+HDR=$(find . -maxdepth 1 -name "linux-${KSUFFIX}-headers-[0-9]*.pkg.tar.zst" | sort -V | tail -1)
+[ -n "$PKG" ] || err "Pacote linux-${KSUFFIX} não encontrado — verifique erros acima."
+log "Kernel  : $(basename "$PKG")"
+[ -n "$HDR" ] && log "Headers : $(basename "$HDR")"
 
 # ─────────────────────────────────────────
-# PASSO 8 — Instalar
+# PASSO 6 — Instalar
 # ─────────────────────────────────────────
-info "Passo 8/9 — Instalando kernel..."
+info "Passo 6/8 — Instalando kernel..."
+# shellcheck disable=SC2086
 sudo pacman -U --noconfirm "$PKG" ${HDR:+"$HDR"}
 log "Kernel instalado."
 
 # ─────────────────────────────────────────
-# PASSO 9 — GRUB + Backup
+# PASSO 7 — GRUB
+# O nome nos menus vem de GRUB_DISTRIBUTOR (definido pelo covenant-setup.sh),
+# então basta regenerar — sem sed em grub.cfg.
 # ─────────────────────────────────────────
-info "Passo 9/9 — Atualizando GRUB e salvando backup..."
-
+info "Passo 7/8 — Atualizando GRUB..."
 sudo grub-mkconfig -o /boot/grub/grub.cfg
-sudo sed -i 's/CachyOS Linux/Covenant-CachyOS/g' /boot/grub/grub.cfg
-log "GRUB: Covenant-CachyOS aplicado."
+log "GRUB atualizado."
 
+# ─────────────────────────────────────────
+# PASSO 8 — Backup dos artefatos
+# ─────────────────────────────────────────
+info "Passo 8/8 — Salvando backup..."
 mkdir -p "$BACKUP_DIR"
 cp "$PKG" "$BACKUP_DIR/"
 [ -n "$HDR" ] && cp "$HDR" "$BACKUP_DIR/"
-cp .config "$BACKUP_DIR/kernel-covenant-cachyos.config" 2>/dev/null || true
-log "Backup salvo em: $BACKUP_DIR"
+cp .config "$BACKUP_DIR/kernel-${KSUFFIX}.config" 2>/dev/null || true
+log "Backup em: $BACKUP_DIR"
 
-# ─────────────────────────────────────────
-# RESUMO
-# ─────────────────────────────────────────
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  Covenant-CachyOS compilado e instalado!${NC}"
+echo -e "${GREEN}  linux-${KSUFFIX} compilado e instalado!${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  uname -r  : → <versão>-covenant-cachyos (após reboot)"
-echo -e "  Kernel    : linux-${KERNEL_NAME}${LOCALVERSION}"
-echo -e "  CPU alvo  : Broadwell (E5-2680 v4)"
-echo -e "  Compiler  : Clang + ThinLTO"
-echo -e "  Scheduler : BORE + EEVDF"
-echo -e "  HZ        : 1000"
-echo -e "  Preempt   : FULL"
-echo -e "  NUMA      : habilitado"
-echo -e "  Backup    : $BACKUP_DIR"
+echo -e "  uname -r   : → <versão>-${KSUFFIX} (após reboot)"
+echo -e "  CPU        : -march=native (Broadwell-EP)"
+echo -e "  Compiler   : Clang + ThinLTO"
+echo -e "  Scheduler  : BORE + EEVDF + sched_ext (scx_rusty OK)"
+echo -e "  Rede       : BBRv3"
 echo ""
-echo -e "${CYAN}  Para reinstalar sem recompilar:${NC}"
-echo -e "  sudo pacman -U $BACKUP_DIR/linux-${KERNEL_NAME}-*.pkg.tar.zst"
-echo ""
-echo -e "${YELLOW}  Steam launch options:${NC}"
-echo -e "  numactl --cpunodebind=0 --membind=0 gamemoderun %command%"
+echo -e "${CYAN}  Reinstalar sem recompilar:${NC}"
+echo -e "  sudo pacman -U $BACKUP_DIR/linux-${KSUFFIX}-*.pkg.tar.zst"
 echo ""
 echo -e "${BOLD}  Reinicie: sudo reboot${NC}"
 echo ""
