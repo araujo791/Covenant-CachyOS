@@ -40,19 +40,23 @@ O foco é reduzir tráfego cross-socket (NUMA), fixar recursos em performance e 
 | Script | O que faz |
 |---|---|
 | `covenant-setup.sh` | Aplica as otimizações de sistema (GRUB, sysctl, governor, zram, I/O, GPU, serviços). |
+| `covenant-install.sh` | Instala com 1 comando os pacotes `.pkg.tar.zst` compilados e o tema do GRUB. |
 | `covenant-build.sh` | Compila o kernel custom `linux-covenant` (Clang+ThinLTO) via env vars do PKGBUILD. |
 | `covenant-backup.sh` | Detecta o kernel em uso e salva vmlinuz/initramfs/pacotes/configs + snapshot. |
 
 ### Uso
 
 ```bash
-# 1. Otimizacoes de sistema (base — boota mesmo sem o kernel custom)
+# 1. Otimizações de sistema (base — boota mesmo sem o kernel custom)
 sudo bash covenant-setup.sh
 
-# 2. (Opcional) Kernel custom para esta maquina — ~10min em rebuild
+# 2. Instalar o kernel custom compilado (.pkg.tar.zst) + tema de boot
+sudo bash covenant-install.sh
+
+# 3. (Opcional) Recompilar o kernel no futuro
 bash covenant-build.sh
 
-# 3. Apos reiniciar no kernel novo, faca o backup
+# 4. Após reiniciar no kernel novo, faça o backup
 sudo bash covenant-backup.sh
 ```
 
