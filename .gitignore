@@ -1,0 +1,15 @@
+# Build artifacts
+*.pkg.tar.zst
+*.pkg.tar.xz
+*.log
+*.tmp
+*.bak
+
+# Environment
+.DS_Store
+*~
+Thumbs.db
+
+# Backups
+*.covenant-orig
+*.pre-*
