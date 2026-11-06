@@ -89,11 +89,11 @@ echo "" >> "$GRUB_DEFAULT"
 echo "# Covenant GRUB Theme" >> "$GRUB_DEFAULT"
 echo "GRUB_THEME=\"/boot/grub/themes/covenant/theme.txt\"" >> "$GRUB_DEFAULT"
 
-# Forçar resolução 1280x720 (escala grande / legível como monitor de 14")
+# Definir resolução nativa 1920x1080 (1:1 pixel-perfect sem serrilhado)
 if grep -q "^#\?GRUB_GFXMODE=" "$GRUB_DEFAULT"; then
-    sed -i 's/^#\?GRUB_GFXMODE=.*/GRUB_GFXMODE="1280x720,1024x768,auto"/' "$GRUB_DEFAULT"
+    sed -i 's/^#\?GRUB_GFXMODE=.*/GRUB_GFXMODE="1920x1080,1280x720,auto"/' "$GRUB_DEFAULT"
 else
-    echo 'GRUB_GFXMODE="1280x720,1024x768,auto"' >> "$GRUB_DEFAULT"
+    echo 'GRUB_GFXMODE="1920x1080,1280x720,auto"' >> "$GRUB_DEFAULT"
 fi
 
 # GFX payload
