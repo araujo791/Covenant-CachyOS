@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  Covenant GRUB Theme — Instalador
-#  Instala o tema GRUB com background, logo e menu estilizado
+#  Covenant Theme Installer (GRUB + Plymouth)
+#  Instala o tema GRUB com resolução ampliada (1280x720) e
+#  o tema Plymouth de boot/shutdown em tela preta com logo grande.
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
-# ─── Cores ────────────────────────────────────────────────────
 RED='\033[0;31m';    GREEN='\033[0;32m';   YELLOW='\033[1;33m'
 CYAN='\033[0;36m';   BOLD='\033[1m';       DIM='\033[2m';  RESET='\033[0m'
 
@@ -13,7 +13,6 @@ ok()   { echo -e "  ${GREEN}✅ $1${RESET}"; }
 warn() { echo -e "  ${YELLOW}⚠️  $1${RESET}"; }
 err()  { echo -e "  ${RED}❌ $1${RESET}"; exit 1; }
 
-# ─── Verificações ────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
     err "Execute como root: sudo bash install-grub-theme.sh"
 fi
@@ -28,36 +27,40 @@ fi
 
 echo -e "${CYAN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════╗"
-echo "  ║   🎨 Covenant GRUB Theme — Instalador    ║"
+echo "  ║   🎨 Covenant Theme Suite — Instalador    ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${RESET}"
 
 # ─── Passo 1: Gerar assets visuais ───────────────────────────
-echo -e "${BOLD}[1/4] Gerando assets visuais...${RESET}"
+echo -e "${BOLD}[1/4] Gerando assets e fontes ampliadas...${RESET}"
 if [ -f "$THEME_SRC/generate-assets.sh" ]; then
     bash "$THEME_SRC/generate-assets.sh"
+    ok "Assets do GRUB gerados"
 else
     warn "generate-assets.sh não encontrado — usando assets existentes"
 fi
 
-# ─── Passo 2: Copiar logo ────────────────────────────────────
-echo -e "\n${BOLD}[2/4] Preparando logo...${RESET}"
-LOGO_SRC="$SCRIPT_DIR/../../assets/covenant-logo.png"
-if [ -f "$LOGO_SRC" ]; then
-    # Redimensionar logo para o GRUB (750x250 transparente)
+# ─── Passo 2: Copiar logo para o GRUB ────────────────────────
+echo -e "\n${BOLD}[2/4] Preparando logo do GRUB...${RESET}"
+LOGO_SRC=""
+for p in "$SCRIPT_DIR/../../assets/covenant-logo.png" \
+         "$SCRIPT_DIR/../assets/covenant-logo.png" \
+         "$THEME_SRC/covenant-logo.png"; do
+    if [ -f "$p" ]; then
+        LOGO_SRC="$p"
+        break
+    fi
+done
+
+if [ -n "$LOGO_SRC" ]; then
     if command -v magick &>/dev/null || command -v convert &>/dev/null; then
         CMD=$(command -v magick || command -v convert)
-        $CMD "$LOGO_SRC" -resize 750x250 -background none PNG32:"$THEME_SRC/covenant-logo.png"
-        ok "Logo redimensionada (750x250 transparente)"
-    else
-        cp "$LOGO_SRC" "$THEME_SRC/covenant-logo.png"
-        warn "ImageMagick não encontrado — logo copiada sem redimensionar"
+        $CMD "$LOGO_SRC" -resize 550x180 -background none PNG32:"$THEME_SRC/covenant-logo.png"
+        ok "Logo GRUB redimensionada (550x180 transparente)"
     fi
-else
-    warn "Logo não encontrada em assets/covenant-logo.png"
 fi
 
-# ─── Passo 3: Instalar tema ─────────────────────────────────
+# ─── Passo 3: Instalar tema no /boot ─────────────────────────
 echo -e "\n${BOLD}[3/4] Instalando tema em $THEME_DEST/...${RESET}"
 mkdir -p "$THEME_DEST"
 
@@ -70,54 +73,57 @@ rm -f "$THEME_DEST/separator.png"
 
 ok "Tema copiado para $THEME_DEST/"
 
-# ─── Passo 4: Configurar GRUB ────────────────────────────────
-echo -e "\n${BOLD}[4/4] Configurando GRUB...${RESET}"
+# ─── Passo 4: Configurar GRUB (/etc/default/grub) ────────────
+echo -e "\n${BOLD}[4/4] Configurando GRUB e resolução ampliada...${RESET}"
 GRUB_DEFAULT="/etc/default/grub"
 
-# Backup
 if [ ! -f "${GRUB_DEFAULT}.pre-covenant-theme" ]; then
     cp "$GRUB_DEFAULT" "${GRUB_DEFAULT}.pre-covenant-theme"
     ok "Backup: ${GRUB_DEFAULT}.pre-covenant-theme"
 fi
 
-# Remover tema anterior se existir
+# Configurar caminho do tema
 sed -i '/^GRUB_THEME=/d' "$GRUB_DEFAULT"
 sed -i '/^#.*GRUB_THEME.*covenant/d' "$GRUB_DEFAULT"
-
-# Adicionar tema Covenant
 echo "" >> "$GRUB_DEFAULT"
 echo "# Covenant GRUB Theme" >> "$GRUB_DEFAULT"
 echo "GRUB_THEME=\"/boot/grub/themes/covenant/theme.txt\"" >> "$GRUB_DEFAULT"
 
-# Garantir resolução do GRUB
-if ! grep -q "^GRUB_GFXMODE=" "$GRUB_DEFAULT"; then
-    echo "GRUB_GFXMODE=\"1920x1080,1280x720,auto\"" >> "$GRUB_DEFAULT"
+# Forçar resolução 1280x720 (escala grande / legível como monitor de 14")
+if grep -q "^#\?GRUB_GFXMODE=" "$GRUB_DEFAULT"; then
+    sed -i 's/^#\?GRUB_GFXMODE=.*/GRUB_GFXMODE="1280x720,1024x768,auto"/' "$GRUB_DEFAULT"
+else
+    echo 'GRUB_GFXMODE="1280x720,1024x768,auto"' >> "$GRUB_DEFAULT"
 fi
-# Garantir que GFX payload está habilitado
+
+# GFX payload
 sed -i 's/^#\?GRUB_GFXPAYLOAD_LINUX=.*/GRUB_GFXPAYLOAD_LINUX="keep"/' "$GRUB_DEFAULT" \
     || echo "GRUB_GFXPAYLOAD_LINUX=\"keep\"" >> "$GRUB_DEFAULT"
 
-ok "GRUB_THEME configurado"
+ok "Resolução ampliada (1280x720) e GRUB_THEME configurados"
 
 # Regenerar grub.cfg
 echo -e "\n${DIM}  Regenerando grub.cfg...${RESET}"
 grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | tail -5
 ok "grub.cfg regenerado"
 
-# ─── Resumo ──────────────────────────────────────────────────
+# ─── Passo 5: Atualizar Plymouth (Boot e Shutdown) ───────────
+PLYMOUTH_INSTALLER="$SCRIPT_DIR/../plymouth/install-plymouth-theme.sh"
+if [ -f "$PLYMOUTH_INSTALLER" ]; then
+    echo -e "\n${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${BOLD}Atualizando tela de Boot e Shutdown (Plymouth)...${RESET}"
+    bash "$PLYMOUTH_INSTALLER"
+fi
+
+# ─── Resumo Final ────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${GREEN}${BOLD}  ✅ Tema Covenant instalado com sucesso!${RESET}"
+echo -e "${GREEN}${BOLD}  ✅ Suite Covenant (GRUB + Plymouth) Atualizada!${RESET}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  ${DIM}Tema:${RESET}     $THEME_DEST/"
-echo -e "  ${DIM}Backup:${RESET}   ${GRUB_DEFAULT}.pre-covenant-theme"
-echo -e "  ${DIM}Resolução:${RESET} $(grep GRUB_GFXMODE "$GRUB_DEFAULT" | cut -d= -f2)"
+echo -e "  ${DIM}GRUB Resolução:${RESET} 1280x720 (escala ampla e nítida)"
+echo -e "  ${DIM}GRUB Layout:${RESET}    Logo no topo, menu amplo, contagem abaixo"
+echo -e "  ${DIM}Plymouth:${RESET}       Fundo preto puro, logo grande, sem textos"
 echo ""
-echo -e "  ${YELLOW}⚠️  Reinicie para ver o novo tema de boot${RESET}"
-echo ""
-echo -e "  ${DIM}Para desinstalar:${RESET}"
-echo -e "  ${DIM}  sudo rm -rf $THEME_DEST${RESET}"
-echo -e "  ${DIM}  sudo sed -i '/GRUB_THEME/d' $GRUB_DEFAULT${RESET}"
-echo -e "  ${DIM}  sudo grub-mkconfig -o /boot/grub/grub.cfg${RESET}"
+echo -e "  ${YELLOW}⚠️  Reinicie para ver o novo visual: sudo reboot${RESET}"
 echo ""
