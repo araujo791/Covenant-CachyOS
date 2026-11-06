@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
 #  Covenant Plymouth Theme — Instalador
-#  Splash de boot e shutdown com logo Covenant sem fundo (transparente)
-#  e spinner cyan animado em tela preta pura.
+#  Splash de boot e shutdown com logo Covenant grande sem fundo
+#  em tela preta pura, com barra de progresso cyan elegante
+#  e sem textos/dizeres do systemd.
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -38,42 +39,32 @@ else
 fi
 
 # ─── Preparar assets ─────────────────────────────────────────
-echo -e "\n${BOLD}[2/3] Preparando assets com transparência...${RESET}"
+echo -e "\n${BOLD}[2/3] Preparando assets em alta resolução e fundo preto...${RESET}"
 mkdir -p "$PLYMOUTH_DIR"
 
-# Procurar logo original
+# Localizar logo original
 LOGO_SRC=""
 for p in "$SCRIPT_DIR/../../assets/covenant-logo.png" \
          "$SCRIPT_DIR/../assets/covenant-logo.png" \
-         "/home/$SUDO_USER/Covenant-CachyOS-main/assets/covenant-logo.png" \
-         "/home/$SUDO_USER/Kernel/covenant-logo.png"; do
+         "$SCRIPT_DIR/covenant/covenant-logo.png" \
+         "/home/$SUDO_USER/Covenant-CachyOS-main/assets/covenant-logo.png"; do
     if [ -f "$p" ]; then
         LOGO_SRC="$p"
         break
     fi
 done
 
-if [ -n "$LOGO_SRC" ] && [ -f "$LOGO_SRC" ]; then
-    CMD=$(command -v magick || command -v convert || echo "")
-    if [ -n "$CMD" ]; then
-        # IMPORTANTE: Preservar 100% da transparência do canal alpha (PNG32 sem fundo)
-        $CMD "$LOGO_SRC" -resize 450x150 -background none PNG32:"$PLYMOUTH_DIR/covenant-logo.png"
-        ok "Logo Covenant gerada com fundo transparente (PNG32)"
-    else
-        cp "$LOGO_SRC" "$PLYMOUTH_DIR/covenant-logo.png"
-        warn "ImageMagick ausente — logo copiada diretamente"
-    fi
-else
-    warn "Logo não encontrada em assets/ — tema usará texto"
-fi
-
-# Gerar background preto puro (seamless em qualquer monitor/resolução)
 CMD=$(command -v magick || command -v convert || echo "")
-if [ -n "$CMD" ]; then
+if [ -n "$CMD" ] && [ -n "$LOGO_SRC" ]; then
+    # Logo bem maior (750x250) e 100% transparente (sem fundo)
+    $CMD "$LOGO_SRC" -resize 750x250 -background none PNG32:"$PLYMOUTH_DIR/covenant-logo.png"
+    ok "Logo Covenant grande (750x250) com fundo transparente gerada"
+
+    # Fundo preto puro (tela preta total no boot e shutdown)
     $CMD -size 1920x1080 xc:"#000000" "$PLYMOUTH_DIR/background.png"
     ok "Background preto puro gerado"
 
-    # Spinner frames (12 frames de anel cyan girando com fundo transparente)
+    # Spinner cyan elegante
     for i in $(seq 0 11); do
         ANGLE=$((i * 30))
         $CMD -size 48x48 xc:none \
@@ -83,24 +74,24 @@ if [ -n "$CMD" ]; then
             -draw "arc 4,4 44,44 $((ANGLE+120)),$((ANGLE+360))" \
             PNG32:"$PLYMOUTH_DIR/spinner-$(printf '%02d' $i).png"
     done
-    ok "Spinner: 12 frames transparentes gerados"
+    ok "Spinner cyan gerado"
 
-    # Barra de progresso para o boot
-    $CMD -size 300x6 xc:"#1e293b" PNG32:"$PLYMOUTH_DIR/progress-bg.png"
-    $CMD -size 300x6 \
-        -define gradient:direction=east \
-        gradient:"#0e7490-#06b6d4" \
-        PNG32:"$PLYMOUTH_DIR/progress-fg.png"
+    # Barra de progresso arredondada elegante (400px x 8px)
+    $CMD -size 400x8 xc:"#1e293b" -draw "roundrectangle 0,0 399,7 3,3" PNG32:"$PLYMOUTH_DIR/progress-bg.png"
+    $CMD -size 400x8 -define gradient:direction=east gradient:"#0e7490-#06b6d4" -draw "roundrectangle 0,0 399,7 3,3" PNG32:"$PLYMOUTH_DIR/progress-fg.png"
     ok "Barra de progresso gerada"
 else
-    warn "ImageMagick ausente"
+    # Copiar do cache se já gerado
+    if [ -d "$SCRIPT_DIR/covenant" ]; then
+        cp -r "$SCRIPT_DIR/covenant"/* "$PLYMOUTH_DIR/" 2>/dev/null || true
+    fi
 fi
 
-# Plymouth theme descriptor
+# Descriptor do tema
 cat > "$PLYMOUTH_DIR/$THEME_NAME.plymouth" << EOF
 [Plymouth Theme]
 Name=Covenant
-Description=Covenant-CachyOS boot and shutdown splash — clean transparent logo with cyan spinner
+Description=Covenant-CachyOS boot and shutdown splash — clean large logo on black background
 ModuleName=script
 
 [script]
@@ -108,18 +99,18 @@ ImageDir=$PLYMOUTH_DIR
 ScriptFile=$PLYMOUTH_DIR/$THEME_NAME.script
 EOF
 
-# Plymouth script
+# Script do Plymouth (sem textos de status, apenas logo grande + barra)
 cat > "$PLYMOUTH_DIR/$THEME_NAME.script" << 'PLYSCRIPT'
 # ═══════════════════════════════════════════════════════════════
 #  Covenant Plymouth Script
-#  Fundo preto puro + logo Covenant 100% transparente + spinner cyan
+#  Fundo preto puro + Logo Covenant grande + Barra cyan
+#  Sem textos de log do sistema
 # ═══════════════════════════════════════════════════════════════
 
-# Dimensões da tela
 screen_w = Window.GetWidth();
 screen_h = Window.GetHeight();
 
-# ─── Background (Preto puro) ──────────────────────────────────
+# ─── Fundo Preto Puro ─────────────────────────────────────────
 bg = Image("background.png");
 bg_sprite = Sprite();
 bg_sprite.SetPosition(0, 0, -100);
@@ -127,21 +118,17 @@ if (bg) {
     bg_sprite.SetImage(bg.Scale(screen_w, screen_h));
 }
 
-# Modo de execução: "boot", "shutdown", "reboot"
-mode = Plymouth.GetMode();
-is_shutdown = (mode == "shutdown" || mode == "reboot");
-
-# ─── Logo (Sem fundo / Transparente) ──────────────────────────
+# ─── Logo Covenant Grande Centralizado ────────────────────────
 logo = Image("covenant-logo.png");
 logo_sprite = Sprite();
 if (logo) {
     logo_sprite.SetImage(logo);
     logo_x = (screen_w - logo.GetWidth()) / 2;
-    logo_y = (screen_h / 2) - logo.GetHeight() - 25;
+    logo_y = (screen_h / 2) - logo.GetHeight() - 10;
     logo_sprite.SetPosition(logo_x, logo_y, 1);
 }
 
-# ─── Spinner Cyan Animado ─────────────────────────────────────
+# ─── Spinner Cyan Central ─────────────────────────────────────
 spinner_frames = [];
 for (i = 0; i < 12; i++) {
     if (i < 10)
@@ -151,7 +138,7 @@ for (i = 0; i < 12; i++) {
 }
 spinner_sprite = Sprite(spinner_frames[0]);
 spinner_x = (screen_w - 48) / 2;
-spinner_y = (screen_h / 2) + 25;
+spinner_y = (screen_h / 2) + 40;
 spinner_sprite.SetPosition(spinner_x, spinner_y, 2);
 
 frame_count = 0;
@@ -163,59 +150,48 @@ fun refresh_callback() {
 }
 Plymouth.SetRefreshFunction(refresh_callback);
 
-# ─── Barra de Progresso (Apenas no Boot) ───────────────────────
+# ─── Barra de Progresso Cyan Elegante ─────────────────────────
 progress_bg = Image("progress-bg.png");
 progress_fg = Image("progress-fg.png");
 
 progress_bg_sprite = Sprite();
 progress_fg_sprite = Sprite();
 
-if (!is_shutdown && progress_bg && progress_fg) {
+bar_w = 400;
+bar_h = 8;
+bar_x = (screen_w - bar_w) / 2;
+bar_y = (screen_h / 2) + 110;
+
+if (progress_bg && progress_fg) {
     progress_bg_sprite.SetImage(progress_bg);
-    progress_bg_x = (screen_w - 300) / 2;
-    progress_bg_y = (screen_h / 2) + 90;
-    progress_bg_sprite.SetPosition(progress_bg_x, progress_bg_y, 1);
-    progress_fg_sprite.SetPosition(progress_bg_x, progress_bg_y, 2);
+    progress_bg_sprite.SetPosition(bar_x, bar_y, 1);
+    progress_fg_sprite.SetPosition(bar_x, bar_y, 2);
 }
 
 fun boot_progress_callback(duration, progress) {
-    if (!is_shutdown && progress >= 0 && progress <= 1 && progress_fg) {
-        fill_w = Math.Int(300 * progress);
+    if (progress >= 0 && progress <= 1 && progress_fg) {
+        fill_w = Math.Int(bar_w * progress);
         if (fill_w > 0) {
-            fill = progress_fg.Scale(fill_w, 6);
+            fill = progress_fg.Scale(fill_w, bar_h);
             progress_fg_sprite.SetImage(fill);
         }
     }
 }
 Plymouth.SetBootProgressFunction(boot_progress_callback);
 
-# ─── Texto de Status ──────────────────────────────────────────
-status_text = Sprite();
-status_y = (screen_h / 2) + 85;
-
+# ─── Sem Dizeres / Mensagens de Log ───────────────────────────
+# Deixamos o status em branco conforme solicitado para visual limpo
 fun status_callback(text) {
-    txt_img = Image.Text(text, 0.39, 0.70, 0.83, 1, "Sans 11");
-    txt_x = (screen_w - txt_img.GetWidth()) / 2;
-    status_text.SetPosition(txt_x, status_y, 3);
-    status_text.SetImage(txt_img);
+    # Suprimido intencionalmente
 }
 Plymouth.SetUpdateStatusFunction(status_callback);
 
-# ─── Mensagem de Desligamento / Reinicialização ───────────────
-if (is_shutdown) {
-    msg = (mode == "reboot") ? "Reiniciando Covenant-CachyOS..." : "Desligando Covenant-CachyOS...";
-    status_img = Image.Text(msg, 0.39, 0.45, 0.56, 1, "Sans 11");
-    status_x = (screen_w - status_img.GetWidth()) / 2;
-    shutdown_text = Sprite(status_img);
-    shutdown_text.SetPosition(status_x, status_y, 3);
-}
-
-# ─── Senha LUKS (Criptografia) ────────────────────────────────
+# ─── Prompt de Senha LUKS (se houver disco criptografado) ────
 fun password_callback(prompt, bullets) {
     prompt_img = Image.Text(prompt, 0.39, 0.70, 0.83, 1, "Sans 14");
     prompt_sprite = Sprite(prompt_img);
     prompt_x = (screen_w - prompt_img.GetWidth()) / 2;
-    prompt_sprite.SetPosition(prompt_x, (screen_h / 2) + 120, 5);
+    prompt_sprite.SetPosition(prompt_x, (screen_h / 2) + 140, 5);
 
     bullet_str = "";
     for (i = 0; i < bullets; i++)
@@ -224,7 +200,7 @@ fun password_callback(prompt, bullets) {
     bullet_img = Image.Text(bullet_str, 0.02, 0.72, 0.83, 1, "Sans 18");
     bullet_sprite = Sprite(bullet_img);
     bx = (screen_w - bullet_img.GetWidth()) / 2;
-    bullet_sprite.SetPosition(bx, (screen_h / 2) + 150, 5);
+    bullet_sprite.SetPosition(bx, (screen_h / 2) + 170, 5);
 }
 Plymouth.SetDisplayPasswordFunction(password_callback);
 
@@ -234,12 +210,11 @@ fun quit_callback() {
     if (spinner_sprite) spinner_sprite.SetOpacity(0);
     if (progress_bg_sprite) progress_bg_sprite.SetOpacity(0);
     if (progress_fg_sprite) progress_fg_sprite.SetOpacity(0);
-    if (status_text) status_text.SetOpacity(0);
 }
 Plymouth.SetQuitFunction(quit_callback);
 PLYSCRIPT
 
-ok "Tema Plymouth atualizado com suporte a transparência"
+ok "Tema Plymouth atualizado com visual limpo e sem textos de log"
 
 # ─── Passo 3: Ativar tema e Reconstruir Initramfs ─────────────
 echo -e "\n${BOLD}[3/3] Aplicando tema e atualizando initramfs...${RESET}"
@@ -249,10 +224,10 @@ plymouth-set-default-theme -R "$THEME_NAME" 2>/dev/null && \
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${GREEN}${BOLD}  ✅ Plymouth Covenant Transparente Instalado!${RESET}"
+echo -e "${GREEN}${BOLD}  ✅ Plymouth Covenant Instalado!${RESET}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  ${DIM}Tema:${RESET}   $PLYMOUTH_DIR/"
-echo -e "  ${DIM}Logo:${RESET}   Fundo 100% transparente (sem caixas ou bordas)"
-echo -e "  ${DIM}Fundo:${RESET}  Preto puro (seamless)"
+echo -e "  ${DIM}Visual:${RESET}   Logo grande + Fundo preto puro"
+echo -e "  ${DIM}Status:${RESET}   Zero mensagens de log / Apenas barra e spinner"
+echo -e "  ${DIM}Boot & Shutdown:${RESET} Mesmo visual elegante no ligar e desligar"
 echo ""

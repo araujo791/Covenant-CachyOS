@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  Covenant GRUB Theme
-#  Tema premium para boot do Covenant-CachyOS
+#  Tema premium ampliado para boot do Covenant-CachyOS
 #  Cores: navy escuro + cyan glow + dourado accent
 # ═══════════════════════════════════════════════════════════════
 
@@ -15,53 +15,54 @@ terminal-width: "100%"
 terminal-height: "100%"
 terminal-border: "0"
 
-# ─── Logo Covenant (topo central) ─────────────────────────────
+# ─── Logo Covenant Ampliada (topo central) ────────────────────
 + image {
-    left = 35%
-    top = 4%
-    width = 30%
+    left = 28%
+    top = 3%
+    width = 44%
     file = "covenant-logo.png"
 }
 
 # ─── Contagem Regressiva de Boot Automático ───────────────────
+# Posicionada com espaçamento seguro abaixo do logo para não sobrepor
 + label {
     left = 0
-    top = 18%
+    top = 21%
     width = 100%
     align = "center"
     id = "__timeout__"
     text = "Iniciando automaticamente em %d segundos..."
     color = "#38bdf8"
-    font = "DejaVu Sans Regular 14"
+    font = "DejaVu Sans Regular 16"
 }
 
-# ─── Menu de Boot Centralizado ────────────────────────────────
+# ─── Menu de Boot Ampliado (Alta Legibilidade) ────────────────
 + boot_menu {
-    left = 22%
-    top = 23%
-    width = 56%
-    height = 55%
+    left = 16%
+    top = 26%
+    width = 68%
+    height = 56%
 
-    # Itens normais
-    item_font = "DejaVu Sans Regular 16"
+    # Itens normais (20pt)
+    item_font = "DejaVu Sans Regular 20"
     item_color = "#94a3b8"
-    item_height = 44
-    item_padding = 14
+    item_height = 54
+    item_padding = 16
     item_spacing = 8
     item_icon_space = 20
 
     # Item selecionado (glow cyan + fundo translúcido arredondado)
-    selected_item_font = "DejaVu Sans Bold 16"
+    selected_item_font = "DejaVu Sans Bold 20"
     selected_item_color = "#ffffff"
     selected_item_pixmap_style = "select_*.png"
 
-    # Ícones
-    icon_width = 32
-    icon_height = 32
+    # Ícones ampliados
+    icon_width = 36
+    icon_height = 36
 
     # Barra de rolagem
     scrollbar = true
-    scrollbar_width = 6
+    scrollbar_width = 8
     scrollbar_thumb = "scrollbar_thumb.png"
     scrollbar_frame = "scrollbar_frame.png"
 }
@@ -69,17 +70,17 @@ terminal-border: "0"
 # ─── Rodapé: Identificação e Teclas de Atalho ─────────────────
 + label {
     left = 0
-    top = 84%
+    top = 85%
     width = 100%
     align = "center"
     text = "Covenant-CachyOS  ·  Performance Toolkit"
     color = "#64748b"
-    font = "DejaVu Sans Regular 14"
+    font = "DejaVu Sans Regular 16"
 }
 
 + label {
     left = 0
-    top = 88%
+    top = 90%
     width = 100%
     align = "center"
     text = "↑↓ Selecionar  ·  Enter Confirmar  ·  E Editar  ·  C Console"

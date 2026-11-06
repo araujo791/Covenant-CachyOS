@@ -44,12 +44,11 @@ fi
 echo -e "\n${BOLD}[2/4] Preparando logo...${RESET}"
 LOGO_SRC="$SCRIPT_DIR/../../assets/covenant-logo.png"
 if [ -f "$LOGO_SRC" ]; then
-    # Redimensionar logo para o GRUB (max 400px largura)
+    # Redimensionar logo para o GRUB (750x250 transparente)
     if command -v magick &>/dev/null || command -v convert &>/dev/null; then
         CMD=$(command -v magick || command -v convert)
-        $CMD "$LOGO_SRC" -resize 500x150 -background none -flatten \
-            "$THEME_SRC/covenant-logo.png"
-        ok "Logo redimensionada (500x150)"
+        $CMD "$LOGO_SRC" -resize 750x250 -background none PNG32:"$THEME_SRC/covenant-logo.png"
+        ok "Logo redimensionada (750x250 transparente)"
     else
         cp "$LOGO_SRC" "$THEME_SRC/covenant-logo.png"
         warn "ImageMagick não encontrado — logo copiada sem redimensionar"
