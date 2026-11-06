@@ -33,24 +33,26 @@ else
     exit 1
 fi
 
-# 3. Gerar 9-slice rounded rectangle para o item selecionado (glow cyan)
+# 3. Gerar 9-slice rounded rectangle usando diretório temporário seguro
+TMP_DIR=$(mktemp -d /tmp/covenant-theme.XXXXXX)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
 echo "  → 9-slice select bar (cantos arredondados + glow cyan)"
 $CONVERT -size 64x44 xc:none \
   -fill "rgba(6, 182, 212, 0.20)" \
   -stroke "$CYAN" -strokewidth 2 \
   -draw "roundrectangle 1,1 62,42 6,6" \
-  /tmp/select_full.png
+  "$TMP_DIR/select_full.png"
 
-$CONVERT /tmp/select_full.png -crop 8x8+0+0 "$THEME_DIR/select_tl.png"
-$CONVERT /tmp/select_full.png -crop 48x8+8+0 "$THEME_DIR/select_t.png"
-$CONVERT /tmp/select_full.png -crop 8x8+56+0 "$THEME_DIR/select_tr.png"
-$CONVERT /tmp/select_full.png -crop 8x28+0+8 "$THEME_DIR/select_w.png"
-$CONVERT /tmp/select_full.png -crop 48x28+8+8 "$THEME_DIR/select_c.png"
-$CONVERT /tmp/select_full.png -crop 8x28+56+8 "$THEME_DIR/select_e.png"
-$CONVERT /tmp/select_full.png -crop 8x8+0+36 "$THEME_DIR/select_bl.png"
-$CONVERT /tmp/select_full.png -crop 48x8+8+36 "$THEME_DIR/select_b.png"
-$CONVERT /tmp/select_full.png -crop 8x8+56+36 "$THEME_DIR/select_br.png"
-rm -f /tmp/select_full.png
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x8+0+0 "$THEME_DIR/select_tl.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 48x8+8+0 "$THEME_DIR/select_t.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x8+56+0 "$THEME_DIR/select_tr.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x28+0+8 "$THEME_DIR/select_w.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 48x28+8+8 "$THEME_DIR/select_c.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x28+56+8 "$THEME_DIR/select_e.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x8+0+36 "$THEME_DIR/select_bl.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 48x8+8+36 "$THEME_DIR/select_b.png"
+$CONVERT "$TMP_DIR/select_full.png" -crop 8x8+56+36 "$THEME_DIR/select_br.png"
 
 # 4. Scrollbar
 echo "  → scrollbar"
