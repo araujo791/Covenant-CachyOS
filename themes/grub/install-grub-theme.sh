@@ -65,7 +65,9 @@ mkdir -p "$THEME_DEST"
 # Copiar todos os arquivos do tema
 cp -r "$THEME_SRC"/*.txt  "$THEME_DEST/" 2>/dev/null || true
 cp -r "$THEME_SRC"/*.png  "$THEME_DEST/" 2>/dev/null || true
+cp -r "$THEME_SRC"/*.pf2  "$THEME_DEST/" 2>/dev/null || true
 cp -r "$THEME_SRC"/icons  "$THEME_DEST/" 2>/dev/null || true
+rm -f "$THEME_DEST/separator.png"
 
 ok "Tema copiado para $THEME_DEST/"
 

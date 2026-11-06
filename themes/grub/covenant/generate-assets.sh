@@ -1,107 +1,76 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
 #  Covenant GRUB Theme — Gerador de assets visuais
-#  Gera select bar, scrollbar, separator e progress bar via
-#  ImageMagick (convert/magick). Funciona sem assets externos.
+#  Gera fontes .pf2, 9-slice select bar, scrollbar via ImageMagick
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 THEME_DIR="$SCRIPT_DIR"
 
-# ─── Cores ────────────────────────────────────────────────────
 CYAN="#06b6d4"
-CYAN_DIM="#0e7490"
 NAVY="#0f172a"
-NAVY_LIGHT="#1e293b"
 SLATE="#334155"
-PURPLE="#7c3aed"
 GOLD="#d4a017"
 
-echo "🎨 Gerando assets do tema Covenant GRUB..."
+echo "🎨 Gerando assets e fontes do tema Covenant GRUB..."
 
-# Verificar ImageMagick
+# 1. Compilar fontes .pf2 para renderização nítida no GRUB
+if command -v grub-mkfont &>/dev/null && [ -f /usr/share/fonts/TTF/DejaVuSans.ttf ]; then
+    echo "  → Fontes DejaVu Sans (.pf2)"
+    grub-mkfont -s 16 -o "$THEME_DIR/dejavu-16.pf2" /usr/share/fonts/TTF/DejaVuSans.ttf 2>/dev/null || true
+    grub-mkfont -s 16 -o "$THEME_DIR/dejavu-bold-16.pf2" /usr/share/fonts/TTF/DejaVuSans-Bold.ttf 2>/dev/null || true
+    grub-mkfont -s 14 -o "$THEME_DIR/dejavu-14.pf2" /usr/share/fonts/TTF/DejaVuSans.ttf 2>/dev/null || true
+fi
+
+# 2. Verificar ImageMagick
 if command -v magick &>/dev/null; then
     CONVERT="magick"
 elif command -v convert &>/dev/null; then
     CONVERT="convert"
 else
-    echo "❌ ImageMagick não encontrado. Instale com:"
-    echo "   sudo pacman -S imagemagick"
+    echo "❌ ImageMagick não encontrado."
     exit 1
 fi
 
-# ─── Select bar (item selecionado no menu) ────────────────────
-# Fundo semi-transparente com borda cyan à esquerda
-echo "  → select_c.png (centro)"
-$CONVERT -size 800x42 xc:"#0d1b2a" \
-    -fill "$CYAN" -draw "rectangle 0,0 3,42" \
-    -alpha set -channel A -evaluate set 85% +channel \
-    "$THEME_DIR/select_c.png"
+# 3. Gerar 9-slice rounded rectangle para o item selecionado (glow cyan)
+echo "  → 9-slice select bar (cantos arredondados + glow cyan)"
+$CONVERT -size 64x44 xc:none \
+  -fill "rgba(6, 182, 212, 0.20)" \
+  -stroke "$CYAN" -strokewidth 2 \
+  -draw "roundrectangle 1,1 62,42 6,6" \
+  /tmp/select_full.png
 
-echo "  → select_w.png (esquerda)"
-$CONVERT -size 4x42 xc:"$CYAN" \
-    "$THEME_DIR/select_w.png"
+$CONVERT /tmp/select_full.png -crop 8x8+0+0 "$THEME_DIR/select_tl.png"
+$CONVERT /tmp/select_full.png -crop 48x8+8+0 "$THEME_DIR/select_t.png"
+$CONVERT /tmp/select_full.png -crop 8x8+56+0 "$THEME_DIR/select_tr.png"
+$CONVERT /tmp/select_full.png -crop 8x28+0+8 "$THEME_DIR/select_w.png"
+$CONVERT /tmp/select_full.png -crop 48x28+8+8 "$THEME_DIR/select_c.png"
+$CONVERT /tmp/select_full.png -crop 8x28+56+8 "$THEME_DIR/select_e.png"
+$CONVERT /tmp/select_full.png -crop 8x8+0+36 "$THEME_DIR/select_bl.png"
+$CONVERT /tmp/select_full.png -crop 48x8+8+36 "$THEME_DIR/select_b.png"
+$CONVERT /tmp/select_full.png -crop 8x8+56+36 "$THEME_DIR/select_br.png"
+rm -f /tmp/select_full.png
 
-echo "  → select_e.png (direita)"
-$CONVERT -size 4x42 xc:"#0d1b2a" \
-    -alpha set -channel A -evaluate set 60% +channel \
-    "$THEME_DIR/select_e.png"
-
-# ─── Separator (linha decorativa) ─────────────────────────────
-echo "  → separator.png"
-$CONVERT -size 960x2 \
-    -define gradient:direction=east \
-    gradient:"#00000000-${CYAN}" \
-    -gravity center -extent 960x2 \
-    \( -size 960x2 -define gradient:direction=east gradient:"${CYAN}-#00000000" \) \
-    -gravity center -composite \
-    "$THEME_DIR/separator.png"
-
-# Versão simplificada se a composição falhar
-if [ ! -f "$THEME_DIR/separator.png" ]; then
-    $CONVERT -size 960x2 xc:"$CYAN" \
-        -alpha set -channel A -fx "sin(pi*i/w)*0.6" +channel \
-        "$THEME_DIR/separator.png"
-fi
-
-# ─── Scrollbar ────────────────────────────────────────────────
-echo "  → scrollbar_thumb.png"
+# 4. Scrollbar
+echo "  → scrollbar"
 $CONVERT -size 6x30 xc:"$CYAN" \
     -alpha set -channel A -evaluate set 80% +channel \
     "$THEME_DIR/scrollbar_thumb.png"
 
-echo "  → scrollbar_frame.png"
 $CONVERT -size 6x30 xc:"$SLATE" \
     -alpha set -channel A -evaluate set 40% +channel \
     "$THEME_DIR/scrollbar_frame.png"
 
-# ─── Progress bar ────────────────────────────────────────────
-echo "  → progress_bar_c.png (preenchida)"
-$CONVERT -size 100x12 \
-    -define gradient:direction=east \
-    gradient:"${CYAN_DIM}-${CYAN}" \
-    "$THEME_DIR/progress_bar_c.png"
-
-echo "  → progress_bg_c.png (fundo)"
-$CONVERT -size 100x12 xc:"$NAVY_LIGHT" \
-    -alpha set -channel A -evaluate set 70% +channel \
-    "$THEME_DIR/progress_bg_c.png"
-
-echo "  → highlight_c.png"
-$CONVERT -size 100x12 xc:"$CYAN" \
-    -alpha set -channel A -evaluate set 90% +channel \
-    "$THEME_DIR/highlight_c.png"
-
-# ─── Ícones de menu (minimalistas) ────────────────────────────
-echo "  → icons/cachyos.png"
+# 5. Ícones
+echo "  → icons/"
+mkdir -p "$THEME_DIR/icons"
 $CONVERT -size 32x32 xc:none \
     -fill "$CYAN" -draw "circle 16,16 16,4" \
     -fill "$NAVY" -draw "circle 16,16 16,8" \
     -fill "$CYAN" -draw "polygon 13,8 19,8 16,20" \
     "$THEME_DIR/icons/cachyos.png"
 
-echo "  → icons/covenant.png"
 $CONVERT -size 32x32 xc:none \
     -fill "$GOLD" -draw "polygon 14,4 18,4 20,16 16,28 12,16" \
     -fill "$CYAN" -draw "circle 16,16 16,6" \
@@ -109,11 +78,11 @@ $CONVERT -size 32x32 xc:none \
     -fill "$GOLD" -draw "polygon 14,4 18,4 20,16 16,28 12,16" \
     "$THEME_DIR/icons/covenant.png"
 
-echo "  → icons/unknown.png"
 $CONVERT -size 32x32 xc:none \
     -fill "$SLATE" -draw "circle 16,16 16,6" \
     "$THEME_DIR/icons/unknown.png"
 
-echo ""
-echo "✅ Assets gerados em: $THEME_DIR/"
-echo "   Arquivos: $(ls -1 "$THEME_DIR"/*.png 2>/dev/null | wc -l) PNGs + $(ls -1 "$THEME_DIR"/icons/*.png 2>/dev/null | wc -l) ícones"
+# Remover artefatos legados
+rm -f "$THEME_DIR/separator.png"
+
+echo "✅ Assets e fontes atualizados em $THEME_DIR/"
